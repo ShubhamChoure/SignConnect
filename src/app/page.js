@@ -124,7 +124,8 @@ export default function HomePage() {
             Break communication barriers with real-time sign language translation
           </motion.p>
           <motion.div variants={fadeInUp}>
-            <a href="/connect">
+            {/* <a href="/connect"> */}
+            <a href="/index.html">
             <Button size="lg" className="bg-blue-600 hover:bg-blue-700 text-white font-bold">
               Let&apos;s Connect
               <ArrowRightIcon className="ml-2 h-4 w-4" />

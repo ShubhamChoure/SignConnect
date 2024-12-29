@@ -1,4 +1,3 @@
-// src/app/connect/page.js
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
@@ -12,82 +11,113 @@ export default function ConnectPage() {
   const canvasRef = useRef(null);
   const [prediction, setPrediction] = useState('None');
   const [webcamRunning, setWebcamRunning] = useState(false);
+  const [handLandmarker, setHandLandmarker] = useState(null);
+  const [gestureModel, setGestureModel] = useState(null);
+  const [labelEncoder, setLabelEncoder] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    let handLandmarker;
-    let gestureModel;
-    let labelEncoder;
-    let animationFrameId;
+    const loadModels = async () => {
+      try {
+        // Load HandLandmarker Model from MediaPipe
+        const vision = await FilesetResolver.forVisionTasks(
+          "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
+        );
 
-    const initializeModels = async () => {
-      const vision = await FilesetResolver.forVisionTasks(
-        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
-      );
+        const handLandmarkerInstance = await HandLandmarker.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task", 
+            delegate: "GPU"
+          },
+          runningMode: "VIDEO",
+          numHands: 2
+        });
+        
+        // Set the handLandmarker instance
+        setHandLandmarker(handLandmarkerInstance);
 
-      handLandmarker = await HandLandmarker.createFromOptions(vision, {
-        baseOptions: {
-          modelAssetPath: `https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`,
-          delegate: "GPU"
-        },
-        runningMode: "VIDEO",
-        numHands: 2
-      });
+        // Load Gesture Recognition Model (TensorFlow.js)
+        const model = await tf.loadLayersModel('/api/model/model.json');
+        setGestureModel(model);
+        
+        // Initialize Label Encoder
+        setLabelEncoder([
+          'A', 'B', 'C', 'D', 'DEL', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'NOTHING', 'O', 'P', 'Q', 'R', 'S', 'SPACE', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'
+        ]);
 
-      gestureModel = await tf.loadLayersModel('/api/model');
-      labelEncoder = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'DEL', 'SPACE', 'NOTHING'];
-    };
-
-    initializeModels();
-
-    return () => {
-      if (animationFrameId) {
-        cancelAnimationFrame(animationFrameId);
+        setLoading(false);
+      } catch (error) {
+        console.error('Error loading models:', error);
+        setLoading(false);
       }
     };
+
+    loadModels();
   }, []);
 
   const enableWebcam = async () => {
-    const constraints = { video: true };
-    const stream = await navigator.mediaDevices.getUserMedia(constraints);
-    videoRef.current.srcObject = stream;
-    videoRef.current.addEventListener('loadeddata', predictWebcam);
-    setWebcamRunning(true);
+    if (webcamRunning) {
+      setWebcamRunning(false);
+      const stream = videoRef.current.srcObject;
+      const tracks = stream.getTracks();
+      tracks.forEach(track => track.stop());
+      videoRef.current.srcObject = null;
+    } else {
+      const constraints = { video: true };
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        videoRef.current.srcObject = stream;
+        videoRef.current.addEventListener('loadeddata', predictWebcam);
+        setWebcamRunning(true);
+      } catch (err) {
+        console.error("Error accessing the webcam:", err);
+      }
+    }
   };
 
+  let lastVideoTime = -1;
+
   const predictWebcam = () => {
-    if (!videoRef.current || !canvasRef.current) return;
+    if (!videoRef.current || !canvasRef.current || !handLandmarker || !gestureModel) return;
 
     const video = videoRef.current;
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
-
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
 
     const startTimeMs = performance.now();
-    const results = handLandmarker.detectForVideo(video, startTimeMs);
+    if (lastVideoTime !== video.currentTime) {
+      lastVideoTime = video.currentTime;
+      const results = handLandmarker.detectForVideo(video, startTimeMs);
 
-    ctx.save();
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.save();
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    if (results.landmarks) {
-      for (const landmarks of results.landmarks) {
-        drawConnectors(ctx, landmarks, HAND_CONNECTIONS, { color: "#00FF00", lineWidth: 5 });
-        drawLandmarks(ctx, landmarks, { color: "#FF0000", lineWidth: 2 });
+      if (results.landmarks) {
+        for (const landmarks of results.landmarks) {
+          // Draw the landmarks and connectors
+          drawConnectors(ctx, landmarks, HAND_CONNECTIONS, { color: "#00FF00", lineWidth: 5 });
+          drawLandmarks(ctx, landmarks, { color: "#FF0000", lineWidth: 2 });
 
-        const handFeatures = extractHandFeatures(landmarks);
-        const inputTensor = tf.tensor([handFeatures]);
-        const prediction = gestureModel.predict(inputTensor);
-        const predictedGestureIndex = prediction.argMax(-1).dataSync()[0];
-        const predictedGesture = labelEncoder[predictedGestureIndex] || 'Unknown';
+          // Extract hand features for gesture prediction
+          const handFeatures = extractHandFeatures(landmarks);
+          const inputTensor = tf.tensor([handFeatures]);
 
-        setPrediction(predictedGesture);
+          // Predict gesture
+          const prediction = gestureModel.predict(inputTensor);
+          const predictedGestureIndex = prediction.argMax(-1).dataSync()[0];
+          const predictedGesture = labelEncoder[predictedGestureIndex] || 'Unknown';
+
+          setPrediction(predictedGesture);
+        }
       }
+
+      ctx.restore();
     }
-    ctx.restore();
 
     if (webcamRunning) {
-      animationFrameId = requestAnimationFrame(predictWebcam);
+      window.requestAnimationFrame(predictWebcam);
     }
   };
 
@@ -119,10 +149,15 @@ export default function ConnectPage() {
             style={{ width: '640px', height: '480px' }}
           />
         </div>
-        <div className="mt-4 text-xl font-semibold text-blue-600">
-          Prediction: {prediction}
-        </div>
+        {loading ? (
+          <div className="text-center text-lg text-blue-600">Loading models...</div>
+        ) : (
+          <div className="mt-4 text-xl font-semibold text-blue-600">
+            Prediction: {prediction}
+          </div>
+        )}
       </div>
     </div>
   );
 }
+
