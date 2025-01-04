@@ -3,12 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Hand Gesture Recognition</title>
+  <title>Sign Connect</title>
 
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+  <script src="https://unpkg.com/typo-js"></script>
+
 
   <style>
     :root {
@@ -22,7 +24,7 @@
       font-family: 'Roboto', sans-serif;
       margin: 0;
       padding: 0;
-      background-color: var(--background-color);
+      background: linear-gradient(to bottom, #003366, #001133);
       color: var(--text-color);
       display: flex;
       flex-direction: column;
@@ -35,12 +37,18 @@
       max-width: 800px;
       padding: 20px;
       box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
     }
 
     h1 {
       color: var(--secondary-color);
       text-align: center;
       margin-bottom: 30px;
+      font-size: 2.5rem;
+      text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
     }
 
     #liveView {
@@ -50,7 +58,7 @@
       margin: 0 auto;
       border-radius: 10px;
       overflow: hidden;
-      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
     }
 
     #webcam {
@@ -71,49 +79,196 @@
       text-align: center;
       font-size: 24px;
       margin-top: 20px;
-      background-color: var(--primary-color);
-      padding: 10px;
-      border-radius: 5px;
+      background-color: rgba(0, 119, 190, 0.3);
+      padding: 15px;
+      border-radius: 10px;
+      backdrop-filter: blur(5px);
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
     }
 
     .word {
       display: inline-block;
       margin-right: 10px;
+      margin-bottom: 10px;
       background-color: var(--secondary-color);
       color: var(--background-color);
       padding: 5px 10px;
-      border-radius: 3px;
+      border-radius: 5px;
+      font-weight: bold;
+    }
+
+    #current-word {
+      background-color: rgba(0, 255, 255, 0.3);
+    }
+
+    #loading-skeleton {
+      width: 100%;
+      max-width: 640px;
+      height: 480px;
+      background-color: rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+      margin-bottom: 20px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #loading-skeleton::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      transform: translateX(-100%);
+      background-image: linear-gradient(
+        90deg,
+        rgba(255, 255, 255, 0) 0,
+        rgba(255, 255, 255, 0.2) 20%,
+        rgba(255, 255, 255, 0.5) 60%,
+        rgba(255, 255, 255, 0)
+      );
+      animation: shimmer 2s infinite;
+    }
+
+    @keyframes shimmer {
+      100% {
+        transform: translateX(100%);
+      }
+    }
+
+    .select-container {
+      margin-top: 20px;
+      margin-bottom: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .select-label {
+      margin-bottom: 10px;
+      font-size: 1rem;
+      color: var(--secondary-color);
+    }
+
+    .select-wrapper {
+      position: relative;
+      width: 200px;
+    }
+
+    .select-wrapper::after {
+      content: "\25BC";
+      position: absolute;
+      top: 50%;
+      right: 15px;
+      transform: translateY(-50%);
+      color: var(--secondary-color);
+      pointer-events: none;
+    }
+
+    #delay-select {
+      width: 100%;
+      padding: 10px 15px;
+      font-size: 1rem;
+      color: var(--text-color);
+      background-color: rgba(0, 119, 190, 0.3);
+      border: 2px solid var(--secondary-color);
+      border-radius: 5px;
+      appearance: none;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+
+    #delay-select:hover, #delay-select:focus {
+      background-color: rgba(0, 119, 190, 0.5);
+      outline: none;
+    }
+
+    #delay-select option {
+      background-color: var(--background-color);
+      color: var(--text-color);
+    }
+
+    .delay-info {
+      margin-top: 10px;
+      font-size: 0.9rem;
+      color: var(--secondary-color);
+      text-align: center;
+      max-width: 300px;
     }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>Hand Gesture Recognition</h1>
+    <h1>Sign Connect</h1>
 
-    <div id="liveView">
+    <div id="loading-skeleton"></div>
+
+    <div id="liveView" style="display: none;">
       <video id="webcam" autoplay playsinline></video>
       <canvas id="output_canvas"></canvas>
+    </div>
+
+    <div class="select-container">
+      <label for="delay-select" class="select-label">Set Recognition Delay:</label>
+      <div class="select-wrapper">
+        <select id="delay-select">
+          <option value="0">No Delay</option>
+          <option value="500">500 ms</option>
+          <option value="1000">1 sec</option>
+          <option value="1500">1.5 sec</option>
+          <option value="2000">2 sec</option>
+        </select>
+      </div>
+      <p class="delay-info">Adjust the delay to fine-tune the responsiveness of gesture recognition. A longer delay may improve accuracy but slow down input.</p>
     </div>
 
     <div id="character-display"></div>
   </div>
 
   <script type="module">
-    import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0";
+  import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0";
+  
+  let handLandmarker = undefined;
+  let gestureModel = undefined;
+  let labelEncoder = undefined;
+  let runningMode = "IMAGE";
+  let lastGesture = "";
+  let dictionary;
+  const video = document.getElementById("webcam");
+  const canvasElement = document.getElementById("output_canvas");
+  const canvasCtx = canvasElement.getContext("2d");
+  const characterDisplay = document.getElementById("character-display");
+  const loadingSkeleton = document.getElementById("loading-skeleton");
+  const liveView = document.getElementById("liveView");
+  const delaySelect = document.getElementById("delay-select");
 
-    let handLandmarker = undefined;
-    let gestureModel = undefined;
-    let labelEncoder = undefined;
-    let runningMode = "IMAGE";
+  let currentWord = '';
+  let utterance;
+  let selectedDelay = 0;
 
-    const video = document.getElementById("webcam");
-    const canvasElement = document.getElementById("output_canvas");
-    const canvasCtx = canvasElement.getContext("2d");
-    const characterDisplay = document.getElementById("character-display");
+  async function initializeTypo() {
+    try {
+      const aff = await fetch('./dict/en_US.aff').then((res) => res.text());
+      const dic = await fetch('./dict/en_US.dic').then((res) => res.text());
+      
+      dictionary = new Typo("en_US", aff, dic); // Test dictionary functionality
+    } catch (error) {
+      console.error("Error initializing Typo.js:", error);
+    }
+  }
+  
 
-    let currentWord = '';
+  document.addEventListener('DOMContentLoaded', () => {
+    initializeTypo();
+  });
 
-    async function setupCamera() {
+  
+  delaySelect.addEventListener('change', () => {
+    selectedDelay = parseInt(delaySelect.value);
+  });
+
+  async function setupCamera() {
+    try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
       video.srcObject = stream;
       return new Promise((resolve) => {
@@ -121,136 +276,175 @@
           resolve(video);
         };
       });
+    } catch (error) {
+      console.error("Camera setup failed:", error);
+      alert("Unable to access the camera. Please grant permissions and reload the page.");
     }
+  }
 
-    const createHandLandmarker = async () => {
-      const vision = await FilesetResolver.forVisionTasks(
-        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
-      );
+  const createHandLandmarker = async () => {
+    const vision = await FilesetResolver.forVisionTasks(
+      "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
+    );
 
-      handLandmarker = await HandLandmarker.createFromOptions(vision, {
-        baseOptions: {
-          modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
-          delegate: "GPU"
-        },
-        runningMode: runningMode,
-        numHands: 2
-      });
-    };
+    handLandmarker = await HandLandmarker.createFromOptions(vision, {
+      baseOptions: {
+        modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+        delegate: "GPU"
+      },
+      runningMode: runningMode,
+      numHands: 2
+    });
+  };
 
-    const loadGestureModel = async () => {
-      try {
-        gestureModel = await tf.loadLayersModel('/api/model/model.json');
-        console.log('Gesture recognition model loaded!');
-      } catch (error) {
-        console.error('Error loading the TensorFlow model:', error);
-      }
-    };
+  const loadGestureModel = async () => {
+    try {
+      gestureModel = await tf.loadLayersModel('/api/model/model.json');
+      console.log('Gesture recognition model loaded!');
+    } catch (error) {
+      console.error('Error loading the TensorFlow model:', error);
+    }
+  };
 
-    const loadLabelEncoder = async () => {
-      labelEncoder = ['A', 'B', 'C', 'D', 'DEL', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'NOTHING', 'O', 'P', 'Q', 'R', 'S', 'SPACE', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'];
-    };
+  const loadLabelEncoder = async () => {
+    labelEncoder = ['A', 'B', 'C', 'D', 'DEL', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'NOTHING', 'O', 'P', 'Q', 'R', 'S', 'SPACE', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'];
+  };
 
-    async function initializeApp() {
+  async function initializeApp() {
+    try {
       await createHandLandmarker();
       await loadGestureModel();
       await loadLabelEncoder();
       await setupCamera();
+      loadingSkeleton.style.display = "none";
+      liveView.style.display = "block";
       video.play();
       predictWebcam();
+    } catch (error) {
+      console.error("Initialization failed:", error);
+      alert("Failed to initialize the application. Check the console for details.");
+    }
+  }
+
+  let lastVideoTime = -1;
+
+  async function predictWebcam() {
+    canvasElement.style.width = video.videoWidth + "px";
+    canvasElement.style.height = video.videoHeight + "px";
+    canvasElement.width = video.videoWidth;
+    canvasElement.height = video.videoHeight;
+
+    if (runningMode === "IMAGE") {
+      runningMode = "VIDEO";
+      await handLandmarker.setOptions({ runningMode: "VIDEO" });
     }
 
-    let lastVideoTime = -1;
+    const startTimeMs = performance.now();
+    if (lastVideoTime !== video.currentTime) {
+      lastVideoTime = video.currentTime;
+      const results = handLandmarker.detectForVideo(video, startTimeMs);
 
-    async function predictWebcam() {
-      canvasElement.style.width = video.videoWidth + "px";
-      canvasElement.style.height = video.videoHeight + "px";
-      canvasElement.width = video.videoWidth;
-      canvasElement.height = video.videoHeight;
+      canvasCtx.save();
+      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
 
-      if (runningMode === "IMAGE") {
-        runningMode = "VIDEO";
-        await handLandmarker.setOptions({ runningMode: "VIDEO" });
-      }
+      if (results.landmarks) {
+        for (const landmarks of results.landmarks) {
+          drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {
+            color: "#00FF00",
+            lineWidth: 5
+          });
+          drawLandmarks(canvasCtx, landmarks, { color: "#FF0000", lineWidth: 2 });
 
-      const startTimeMs = performance.now();
-      if (lastVideoTime !== video.currentTime) {
-        lastVideoTime = video.currentTime;
-        const results = handLandmarker.detectForVideo(video, startTimeMs);
+          const handFeatures = extractHandFeatures(landmarks);
+          const inputTensor = tf.tensor([handFeatures]);
+          const prediction = gestureModel.predict(inputTensor);
+          const predictedGestureIndex = prediction.argMax(-1).dataSync()[0];
 
-        canvasCtx.save();
-        canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-
-        if (results.landmarks) {
-          for (const landmarks of results.landmarks) {
-            drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {
-              color: "#00FF00",
-              lineWidth: 5
-            });
-            drawLandmarks(canvasCtx, landmarks, { color: "#FF0000", lineWidth: 2 });
-
-            const handFeatures = extractHandFeatures(landmarks);
-            const inputTensor = tf.tensor([handFeatures]);
-            const prediction = gestureModel.predict(inputTensor);
-            const predictedGestureIndex = prediction.argMax(-1).dataSync()[0];
-
-            const predictedGesture = labelEncoder[predictedGestureIndex] || 'Unknown';
-            updateCharacterDisplay(predictedGesture);
-          }
+          const predictedGesture = labelEncoder[predictedGestureIndex] || 'Unknown';
+          updateCharacterDisplay(predictedGesture);
         }
-        canvasCtx.restore();
+      } else {
+        console.log("No hand landmarks detected.");
       }
-
-      window.requestAnimationFrame(predictWebcam);
+      canvasCtx.restore();
     }
 
-    function extractHandFeatures(landmarks) {
-      const features = [];
-      for (let i = 0; i < landmarks.length; i++) {
-        features.push(landmarks[i].x, landmarks[i].y, landmarks[i].z);
-      }
-      return features;
-    }
+    setTimeout(() => window.requestAnimationFrame(predictWebcam), selectedDelay);
+  }
 
-    function updateCharacterDisplay(gesture) {
-      if (gesture !== 'Unknown' && gesture !== 'NOTHING') {
-        if (gesture === 'SPACE') {
-          if (currentWord) {
-            const wordElement = document.createElement('span');
-            wordElement.className = 'word';
-            wordElement.textContent = currentWord;
-            characterDisplay.appendChild(wordElement);
-            currentWord = '';
+  function extractHandFeatures(landmarks) {
+    const features = [];
+    for (let i = 0; i < landmarks.length; i++) {
+      features.push(landmarks[i].x, landmarks[i].y, landmarks[i].z);
+    }
+    return features;
+  }
+  
+  async function updateCharacterDisplay(gesture) {
+    if (gesture !== 'Unknown' && gesture !== 'NOTHING') {
+      if (gesture === 'SPACE') {
+        if (currentWord) {
+          const wordElement = document.createElement('span');
+          let correctedWord = currentWord;
+          if (dictionary && !dictionary.check(currentWord)) {
+            try {
+              const suggestions = dictionary.suggest(currentWord);
+              if (suggestions.length > 0) {
+                correctedWord = suggestions[0];
+              }else{
+                correctedWord = currentWord;
+              }
+            } catch (error) {
+              console.error("Error during word suggestion:", error);
+            }
           }
-        } else if (gesture === 'DEL') {
-          if (currentWord) {
-            currentWord = currentWord.slice(0, -1);
-          } else if (characterDisplay.lastChild) {
-            characterDisplay.removeChild(characterDisplay.lastChild);
-          }
-        } else {
+          wordElement.className = 'word';
+          wordElement.textContent = correctedWord;
+          characterDisplay.appendChild(wordElement);
+          speak(correctedWord);
+          currentWord = '';
+        }
+      } else if (gesture === 'DEL') {
+        if (currentWord) {
+          currentWord = "";
+        } else if (characterDisplay.lastChild) {
+          characterDisplay.removeChild(characterDisplay.lastChild);
+        }
+      } else {
+        if (gesture !== lastGesture) {
           currentWord += gesture;
-        }
-
-        // Update the display
-        const currentWordElement = document.getElementById('current-word');
-        if (!currentWordElement) {
-          const newCurrentWordElement = document.createElement('span');
-          newCurrentWordElement.id = 'current-word';
-          newCurrentWordElement.className = 'word';
-          characterDisplay.appendChild(newCurrentWordElement);
-          // characterDisplay.insertBefore(newCurrentWordElement);
-        }
-        document.getElementById('current-word').textContent = currentWord;
-
-        // Limit the number of words displayed
-        while (characterDisplay.childElementCount > 10) {
-          characterDisplay.removeChild(characterDisplay.firstChild);
+          lastGesture = gesture;
         }
       }
-    }
 
-    window.addEventListener('load', initializeApp);
+      // Update the display
+      let currentWordElement = document.getElementById('current-word');
+      if (!currentWordElement) {
+        currentWordElement = document.createElement('span');
+        currentWordElement.id = 'current-word';
+        currentWordElement.className = 'word';
+        characterDisplay.appendChild(currentWordElement);
+      }
+      currentWordElement.textContent = currentWord;
+
+      // Limit the number of words displayed
+      while (characterDisplay.childElementCount > 6) {
+        characterDisplay.removeChild(characterDisplay.firstChild);
+      }
+    }
+  }
+  
+  function speak(text){
+    utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = "en-US"; // Set language
+      utterance.rate = 1; // Set speed (0.1 to 10)
+      utterance.pitch = 1; // Set pitch (0 to 2)
+      utterance.volume = 1; // Set volume (0 to 1)
+
+      window.speechSynthesis.speak(utterance);
+  }
+  window.addEventListener('load', initializeApp);
   </script>
+
 </body>
 </html>
