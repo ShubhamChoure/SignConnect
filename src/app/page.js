@@ -224,7 +224,7 @@ export default function HomePage() {
           <p className="text-lg sm:text-xl text-gray-600 mb-5 sm:mb-6">
             Join thousands of users breaking communication barriers every day.
           </p>
-          <a href="/connect">
+          <a href="/index.html">
           <Button size="lg" className="bg-blue-600 hover:bg-blue-700 text-white font-bold">
             Start Communication
           </Button>
